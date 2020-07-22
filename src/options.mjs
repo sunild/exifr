@@ -190,6 +190,8 @@ var defaults = {
 	// Maximum amount of additional chunks allowed to read in chunk mode.
 	// If the requested segments aren't parsed within N chunks (64*3 = 192kb) they probably aren't in the file.
 	chunkLimit: 5,
+	// Optional HTTP headers to pass when fetching images from urls
+	httpHeaders: {}
 }
 
 

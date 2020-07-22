@@ -614,6 +614,13 @@ This limit is bypassed if multi-segment segments ocurs in the file and if [`opti
 
 *If the exif isn't found within N chunks (64\*5 = 320KB) it probably isn't in the file and it's not worth reading anymore.*
 
+#### `options.httpHeaders`
+Type: `object`
+<br>
+Default: `{}`
+
+Add additional headers to HTTP requests when fetching image chunks from a url.
+
 ### Output format
 
 #### `options.mergeOutput`

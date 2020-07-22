@@ -22,7 +22,7 @@ export function read(arg, options) {
 function readString(arg, options) {
 	if (isBase64Url(arg))
 		return callReaderClass(arg, options, 'base64')
-	else if (platform.browser)
+	else if (platform.browser || (platform.node && isUrl(arg)))
 		return callReader(arg, options, 'url', fetchUrlAsArrayBuffer)
 	else if (platform.node)
 		return callReaderClass(arg, options, 'fs')
@@ -71,4 +71,8 @@ export async function readBlobAsArrayBuffer(blob) {
 function isBase64Url(string) {
 	return string.startsWith('data:')
 		|| string.length > 10000 // naive
+}
+
+function isUrl(string) {
+	return string.match(/^https?:\/\//)
 }
