@@ -26,9 +26,9 @@ interface FormatOptions {
 interface Options extends FormatOptions {
 	// TIFF segment
 	tiff?: FormatOptions | boolean,
-	ifd0?: FormatOptions, // cannot be disabled. 
+	ifd0?: FormatOptions | boolean,
 	ifd1?: FormatOptions | boolean,
-	exfif?: FormatOptions | boolean,
+	exif?: FormatOptions | boolean,
 	gps?: FormatOptions | boolean,
 	interop?: FormatOptions | boolean,
 	// Other segments
@@ -44,6 +44,7 @@ interface Options extends FormatOptions {
 	firstChunkSize?: number,
 	chunkSize?: number,
 	chunkLimit?: number,
+	httpHeaders?: any,
 }
 
 export function parse(data: Input, options?: Options | Filter): Promise<any>;
