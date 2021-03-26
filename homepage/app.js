@@ -60,6 +60,7 @@ class ExifrDemoApp {
 
 		this.options = cloneObject(exifr.Options.default)
 		this.options.ifd1 = true
+		this.options.ihdr = true
 		if (demoOptions) Object.assign(this.options, demoOptions)
 		// Load the demo image as array buffer to keep in memory
 		// to prevent distortion of initial parse time.
@@ -175,8 +176,9 @@ class ExifrDemoApp {
 			}
 			output.xmp = merged
 		}
+
 		this.output = output
-		this.browserCompatibleFile = !!exr.file.isJpeg
+		this.browserCompatibleFile = !!exr.file.jpeg
 
 		if (output.ifd1) {
 			let arrayBuffer = await exr.extractThumbnail()

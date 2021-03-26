@@ -3,9 +3,8 @@ import {TAG_IFD_EXIF, TAG_IFD_GPS, TAG_IFD_INTEROP} from './tags.mjs'
 import {TAG_XMP, TAG_IPTC, TAG_ICC} from './tags.mjs'
 import {tagKeys} from './tags.mjs'
 import * as platform from './util/platform.mjs'
-import {customError} from './util/helpers.mjs'
+import {throwError} from './util/helpers.mjs'
 import {segmentParsers, throwNotLoaded} from './plugins.mjs'
-import {TAG_GPS_LATREF, TAG_GPS_LAT, TAG_GPS_LONREF, TAG_GPS_LON, TAG_ORIENTATION} from './tags.mjs'
 
 
 export const chunkedProps = [
@@ -17,14 +16,16 @@ export const chunkedProps = [
 	'chunkLimit',
 ]
 
-export const otherSegments = ['jfif', 'xmp', 'icc', 'iptc']
+// List of other segments besides the tiff/exif itself
+export const otherSegments = ['jfif', 'xmp', 'icc', 'iptc', 'ihdr']
+// List of all other segments
 export const segments = ['tiff', ...otherSegments]
 // WARNING: this order is necessary for correctly assigning pick tags.
 export const tiffBlocks = ['ifd0', 'ifd1', 'exif', 'gps', 'interop']
 export const segmentsAndBlocks = [...segments, ...tiffBlocks]
 export const tiffExtractables = ['makerNote', 'userComment']
 export const inheritables = ['translateKeys', 'translateValues', 'reviveValues', 'multiSegment']
-export const allFormatters = [...inheritables, 'sanitize', 'mergeOutput']
+export const allFormatters = [...inheritables, 'sanitize', 'mergeOutput', 'silentErrors']
 
 
 class SharedOptions {
@@ -81,7 +82,7 @@ class SubOptions extends SharedOptions {
 			} else if (userValue === true || userValue === false) {
 				this.parse = this.enabled = userValue
 			} else {
-				throw customError(`Invalid options argument: ${userValue}`)
+				throwError(`Invalid options argument: ${userValue}`)
 			}
 		}
 
@@ -126,7 +127,7 @@ class SubOptions extends SharedOptions {
 
 var defaults = {
 	// APP Segments
-	jfif: false,
+	jfif: false, // jpeg only (jpeg file header)
 	tiff: true,
 	xmp: false,
 	icc: false,
@@ -137,7 +138,11 @@ var defaults = {
 	ifd1: false, // thumbnail
 	exif: true,
 	gps: true,
-	interop: false,
+	interop: false, // jpeg only
+
+	// undefined because we don't want Jpeg or Heic file parser to pick it up.
+	// Png parser will use Ihdr implicitly unless it's disabled by user.
+	ihdr: undefined, // png only (png file header)
 
 	// Notable TIFF tags
 	makerNote: false,
@@ -168,7 +173,7 @@ var defaults = {
 	// Changes output format by merging all segments and blocks into single object.
 	// NOTE = Causes loss of thumbnail EXIF data.
 	mergeOutput: true,
-	// Fails silently and logs the file errors in output.error instead of throwing error.
+	// Fails silently and logs the file errors in output.errors instead of throwing error.
 	silentErrors: true,
 
 	// CHUNKED READER
@@ -199,6 +204,7 @@ var existingInstances = new Map
 
 export class Options extends SharedOptions {
 
+	// exporting for user to change
 	static default = defaults
 
 	static useCached(userOptions) {
@@ -220,7 +226,7 @@ export class Options extends SharedOptions {
 		else if (typeof userOptions === 'object')
 			this.setupFromObject(userOptions)
 		else
-			throw customError(`Invalid options argument ${userOptions}`)
+			throwError(`Invalid options argument ${userOptions}`)
 		if (this.firstChunkSize === undefined)
 			this.firstChunkSize = platform.browser ? this.firstChunkSizeBrowser : this.firstChunkSizeNode
 		// thumbnail contains the same tags as ifd0. they're not necessary when `mergeOutput`
@@ -385,34 +391,3 @@ function addToSet(target, source) {
 	for (let item of source)
 		target.add(item)
 }
-
-export const disableAllOptions = {
-	ifd0: false,
-	ifd1: false,
-	exif: false,
-	gps: false,
-	interop: false,
-	// turning off all unnecessary steps and transformation to get the needed data ASAP
-	sanitize: false,
-	reviveValues: true,
-	translateKeys: false,
-	translateValues: false,
-	mergeOutput: false,
-}
-
-export const gpsOnlyOptions = Object.assign({}, disableAllOptions, {
-	firstChunkSize: 40000,
-	gps: [TAG_GPS_LATREF, TAG_GPS_LAT, TAG_GPS_LONREF, TAG_GPS_LON],
-})
-
-export const orientationOnlyOptions = Object.assign({}, disableAllOptions, {
-	firstChunkSize: 40000,
-	ifd0: [TAG_ORIENTATION],
-})
-
-export const thumbnailOnlyOptions = Object.assign({}, disableAllOptions, {
-	tiff: false,
-	ifd1: true,
-	// needed to prevent options from disabling ifd1
-	mergeOutput: false
-})

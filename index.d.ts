@@ -47,11 +47,25 @@ interface Options extends FormatOptions {
 	httpHeaders?: any,
 }
 
+interface IRotation {
+	deg: number;
+	rad: number;
+	scaleX: number;
+	scaleY: number;
+	dimensionSwapped: boolean;
+	css: boolean;
+	canvas: boolean;
+}
+
 export function parse(data: Input, options?: Options | Filter): Promise<any>;
 export function thumbnail(data: Input): Promise<Uint8Array | Buffer | undefined>;
 export function thumbnailUrl(data: Input): Promise<string>;
 export function gps(data: Input): Promise<GpsOutput>;
 export function orientation(data: Input): Promise<number | undefined>;
+export const rotations: {[index: number]: IRotation};
+export let rotateCanvas: boolean;
+export let rotateCss: boolean;
+export function rotation(data: Input): Promise<IRotation | undefined>;
 
 export const tagKeys:     Map<string, Map<number, string>>;
 export const tagValues:   Map<string, Map<number, any>>;

@@ -3,11 +3,12 @@ import {segmentParsers} from '../plugins.mjs'
 import {TAG_IFD_EXIF, TAG_IFD_GPS, TAG_IFD_INTEROP, TAG_MAKERNOTE, TAG_USERCOMMENT, TAG_XMP, TAG_IPTC, TAG_ICC} from '../tags.mjs'
 import {TAG_GPS_LATREF, TAG_GPS_LAT, TAG_GPS_LONREF, TAG_GPS_LON} from '../tags.mjs'
 import {TIFF_LITTLE_ENDIAN, TIFF_BIG_ENDIAN} from '../util/helpers.mjs'
-import {BufferView} from '../util/BufferView.mjs'
 import {isEmpty, normalizeString} from '../util/helpers.mjs'
-import {customError, estimateMetadataSize} from '../util/helpers.mjs'
+import {throwError, estimateMetadataSize} from '../util/helpers.mjs'
 import {tiffBlocks} from '../options.mjs'
 
+
+const MALFORMED = 'Malformed EXIF data'
 
 const THUMB_OFFSET = 0x0201
 const THUMB_LENGTH = 0x0202
@@ -76,14 +77,14 @@ export class TiffCore extends AppSegmentParserBase {
 			this.le = true // little endian
 		else if (byteOrder === TIFF_BIG_ENDIAN)
 			this.le = false // big endian
-		else
-			throw customError('Invalid EXIF data: expected byte order marker (0x4949 or 0x4D4D).')
+//		else
+//			throwError('Invalid EXIF data: expected byte order marker (0x4949 or 0x4D4D).')
 		this.chunk.le = this.le
-
+/*
 		// Bytes 8 & 9 are expected to be 00 2A.
 		if (this.chunk.getUint16(2) !== 0x002A)
-			throw customError('Invalid EXIF data: expected 0x002A.')
-
+			throwError('Invalid EXIF data: expected 0x002A.')
+*/
 		this.headerParsed = true
 	}
 
@@ -113,34 +114,35 @@ export class TiffCore extends AppSegmentParserBase {
 	}
 
 	parseTag(offset, tag, blockKey) {
-		let type = this.chunk.getUint16(offset + 2)
-		let valueCount = this.chunk.getUint32(offset + 4)
+		let {chunk} = this
+		let type       = chunk.getUint16(offset + 2)
+		let valueCount = chunk.getUint32(offset + 4)
 		let valueSize = SIZE_LOOKUP[type]
 		let totalSize = valueSize * valueCount
 		if (totalSize <= 4)
 			offset = offset + 8
 		else
-			offset = this.chunk.getUint32(offset + 8)
+			offset = chunk.getUint32(offset + 8)
 
 		if (type < BYTE || type > IFD)
-			throw customError(`Invalid TIFF value type. block: ${blockKey.toUpperCase()}, tag: ${tag.toString(16)}, type: ${type}, offset ${offset}`)
+			throwError(`Invalid TIFF value type. block: ${blockKey.toUpperCase()}, tag: ${tag.toString(16)}, type: ${type}, offset ${offset}`)
 
-		if (offset > this.chunk.byteLength) {
+		if (offset > chunk.byteLength) {
 			// TODO: future API
 			//this.tagsOutsideChunk.push({tag, offset, type, valueCount, valueSize, totalSize})
-			throw customError(`Invalid TIFF value offset. block: ${blockKey.toUpperCase()}, tag: ${tag.toString(16)}, type: ${type}, offset ${offset} is outside of chunk size ${this.chunk.byteLength}`)
+			throwError(`Invalid TIFF value offset. block: ${blockKey.toUpperCase()}, tag: ${tag.toString(16)}, type: ${type}, offset ${offset} is outside of chunk size ${chunk.byteLength}`)
 		}
 
 		if (type === BYTE) // type 1
-			return this.chunk.getUint8Array(offset, valueCount)
+			return chunk.getUint8Array(offset, valueCount)
 
 		// ascii strings, array of 8bits/1byte values.
 		if (type === ASCII) // type 2
-			return normalizeString(this.chunk.getString(offset, valueCount))
+			return normalizeString(chunk.getString(offset, valueCount))
 
 		// undefined/buffers of 8bit/1byte values.
 		if (type === UNDEFINED) // type 7
-			return this.chunk.getUint8Array(offset, valueCount)
+			return chunk.getUint8Array(offset, valueCount)
 
 		// Now that special cases are solved, we can return the normal uint/int value(s).
 		if (valueCount === 1) {
@@ -161,19 +163,20 @@ export class TiffCore extends AppSegmentParserBase {
 	}
 
 	parseTagValue(type, offset) {
+		let {chunk} = this
 		switch (type) {
-			case BYTE     : return this.chunk.getUint8(offset)
-			case SHORT    : return this.chunk.getUint16(offset)
-			case LONG     : return this.chunk.getUint32(offset)
-			case RATIONAL : return this.chunk.getUint32(offset) / this.chunk.getUint32(offset + 4)
-			case SBYTE    : return this.chunk.getInt8(offset)
-			case SSHORT   : return this.chunk.getInt16(offset)
-			case SLONG    : return this.chunk.getInt32(offset)
-			case SRATIONAL: return this.chunk.getInt32(offset) / this.chunk.getInt32(offset + 4)
-			case FLOAT    : return this.chunk.getFloat(offset)
-			case DOUBLE   : return this.chunk.getDouble(offset)
-			case 13: return this.chunk.getUint32(offset)
-			default: throw customError(`Invalid tiff type ${type}`)
+			case BYTE     : return chunk.getUint8(offset)
+			case SHORT    : return chunk.getUint16(offset)
+			case LONG     : return chunk.getUint32(offset)
+			case RATIONAL : return chunk.getUint32(offset) / chunk.getUint32(offset + 4)
+			case SBYTE    : return chunk.getInt8(offset)
+			case SSHORT   : return chunk.getInt16(offset)
+			case SLONG    : return chunk.getInt32(offset)
+			case SRATIONAL: return chunk.getInt32(offset) / chunk.getInt32(offset + 4)
+			case FLOAT    : return chunk.getFloat(offset)
+			case DOUBLE   : return chunk.getDouble(offset)
+			case 13: return chunk.getUint32(offset)
+			default: throwError(`Invalid tiff type ${type}`)
 		}
 	}
 
@@ -219,23 +222,23 @@ export class TiffExif extends TiffCore {
 	// APP1 includes TIFF formatted values, grouped into IFD blocks (IFD0, Exif, Interop, GPS, IFD1)
 	async parse() {
 		this.parseHeader()
+		let {options} = this
 		// WARNING: In .tif files, exif can be before ifd0 (issue-metadata-extractor-152.tif has: EXIF 2468122, IFD0 2468716)
-		if (this.options.ifd0.enabled)    await this.parseIfd0Block()                              // APP1 - IFD0
-		if (this.options.exif.enabled)    await this.saveParseBlock('parseExifBlock')      // APP1 - EXIF IFD
-		if (this.options.gps.enabled)     await this.saveParseBlock('parseGpsBlock')       // APP1 - GPS IFD
-		if (this.options.interop.enabled) await this.saveParseBlock('parseInteropBlock')   // APP1 - Interop IFD
-		if (this.options.ifd1.enabled)    await this.saveParseBlock('parseThumbnailBlock') // APP1 - IFD1
+		if (options.ifd0.enabled)    await this.parseIfd0Block()                              // APP1 - IFD0
+		if (options.exif.enabled)    await this.safeParse('parseExifBlock')      // APP1 - EXIF IFD
+		if (options.gps.enabled)     await this.safeParse('parseGpsBlock')       // APP1 - GPS IFD
+		if (options.interop.enabled) await this.safeParse('parseInteropBlock')   // APP1 - Interop IFD
+		if (options.ifd1.enabled)    await this.safeParse('parseThumbnailBlock') // APP1 - IFD1
 		return this.createOutput()
 		//return this.output
 	}
 
 	// this is ugly but needed for async-to-promise babel plugin to work
-	async saveParseBlock(methodName) {
-		try {
-			return await this[methodName]()
-		} catch (err) {
-			this.handleError(err)
-		}
+	safeParse(methodName) {
+		let result = this[methodName]()
+		// Ugly IE fix, async functions always return promises, but not when transpiled.
+		if (result.catch !== undefined) result = result.catch(this.handleError)
+		return result
 	}
 
 	findIfd0Offset() {
@@ -262,16 +265,17 @@ export class TiffExif extends TiffCore {
 
 	async parseIfd0Block() {
 		if (this.ifd0) return
+		let {file} = this
 		// Read the IFD0 segment with basic info about the image
 		// (width, height, maker, model and pointers to another segments)
 		this.findIfd0Offset()
 		if (this.ifd0Offset < 8)
-			throw customError('Invalid EXIF data: IFD0 offset should be less than 8')
-		if (!this.file.chunked && this.ifd0Offset > this.file.byteLength)
-			throw customError(`IFD0 offset points to outside of file.\nthis.ifd0Offset: ${this.ifd0Offset}, file.byteLength: ${this.file.byteLength}`)
+			throwError(MALFORMED)
+		if (!file.chunked && this.ifd0Offset > file.byteLength)
+			throwError(`IFD0 offset points to outside of file.\nthis.ifd0Offset: ${this.ifd0Offset}, file.byteLength: ${file.byteLength}`)
 		//await this.ensureBlockChunk(this.ifd0Offset, estimateMetadataSize(this.options))
-		if (this.file.isTiff)
-			await this.file.ensureChunk(this.ifd0Offset, estimateMetadataSize(this.options))
+		if (file.tiff)
+			await file.ensureChunk(this.ifd0Offset, estimateMetadataSize(this.options))
 		// Parse IFD0 block.
 		let ifd0 = this.parseBlock(this.ifd0Offset, 'ifd0')
 		// Cancel if the ifd0 is empty (imaged created from scratch in photoshop).
@@ -283,6 +287,7 @@ export class TiffExif extends TiffCore {
 		this.xmp           = ifd0.get(TAG_XMP)
 		this.iptc          = ifd0.get(TAG_IPTC)
 		this.icc           = ifd0.get(TAG_ICC)
+		//this.photoshop     = ifd0.get(0x8649)
 		// IFD0 segment also contains offset pointers to another segments deeper within the EXIF.
 		if (this.options.sanitize) {
 			ifd0.delete(TAG_IFD_EXIF)
@@ -295,29 +300,13 @@ export class TiffExif extends TiffCore {
 		return ifd0
 	}
 
-	async ensureBlockChunk(offset, length) {
-		if (this.file.isTiff) {
-			// This is unusual case in jpeg files, but happens often in tiff files.
-			// .tif files start with TIFF structure header. It contains pointer to IFD0. But the IFD0 data can be at the end of the file.
-			// We only read a small chunk, managed to find IFD0, but that position in the file isn't read yet.
-			await this.file.ensureChunk(offset, length)
-		}
-		if (offset/* + length*/ > this.chunk.byteLength) {
-			// We need to step outside, and work with the whole file because all other pointers are absolute values from start of the file.
-			// That includes other IFDs and even tag values longer than 4 bytes are indexed (see .parseTag())
-			// WARNING: Creating different view on top of file with TIFFs endian mode, because TIFF structure typically uses different endiannness.
-			this.chunk = BufferView.from(this.file, this.le)
-		}
-	}
-
 	// EXIF block of TIFF of APP1 segment
 	// 0x8769
 	async parseExifBlock() {
 		if (this.exif) return
 		if (!this.ifd0) await this.parseIfd0Block()
 		if (this.exifOffset === undefined) return
-		//await this.ensureBlockChunk(this.exifOffset, estimateMetadataSize(this.options))
-		if (this.file.isTiff)
+		if (this.file.tiff)
 			await this.file.ensureChunk(this.exifOffset, estimateMetadataSize(this.options))
 		let exif = this.parseBlock(this.exifOffset, 'exif')
 		if (!this.interopOffset) this.interopOffset = exif.get(TAG_IFD_INTEROP)

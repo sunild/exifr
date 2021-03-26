@@ -1,6 +1,14 @@
 import {fileParsers} from '../plugins.mjs'
 import {FileParserBase} from '../parser.mjs'
+// Only HEIC uses BufferView.getUint64
+import '../util/BufferView-get64.mjs'
+import {BufferView} from '../util/BufferView.mjs'
 
+
+// 4 length + 4 kind + 8 (not always) for additional 64b length field
+const boxHeaderLength = 16
+
+// boxes with full head: meta, iinf, iref
 
 export class IsoBmffParser extends FileParserBase {
 
@@ -25,9 +33,9 @@ export class IsoBmffParser extends FileParserBase {
 	}
 
 	parseBoxHead(offset) {
-		let length     = this.file.getUint32(offset)
-		let kind       = this.file.getString(offset + 4, 4)
-		let start = offset + 8 // 4+4 bytes
+		let length = this.file.getUint32(offset)
+		let kind   = this.file.getString(offset + 4, 4)
+		let start  = offset + 8 // 4+4 bytes
 		// length can be larger than 32b number in which case it is the first 64bits after header
 		if (length === 1) {
 			length = this.file.getUint64(offset + 8)
@@ -39,6 +47,7 @@ export class IsoBmffParser extends FileParserBase {
 	parseBoxFullHead(box) {
 		// ISO boxes come in 'old' and 'full' variants.
 		// The 'full' variant also contains version and flags information.
+		if (box.version !== undefined) return
 		let vflags = this.file.getUint32(box.start)
 		box.version = vflags >> 24
 		box.start += 4
@@ -48,12 +57,37 @@ export class IsoBmffParser extends FileParserBase {
 
 export class HeicFileParser extends IsoBmffParser {
 
+	static type = 'heic'
+
+	// NOTE: most parsers check if bytes 4-8 are 'ftyp' and then if 8-12 is one of heic/heix/hevc/hevx/heim/heis/hevm/hevs/mif1/msf1
+	//       but bytes 20-24 are actually always 'heic' for all of these formats
+	static canHandle(file) {
+		// FTYP length is the first 32b but it's not likely there will be more than 30, let alone 2^32 FTYPs.
+		// So it's safe to assume that if first two bytes are 0, then this is HEIC.
+		if (file.getUint16(0) !== 0) return false
+		let ftypLength = file.getUint16(2)
+		if (ftypLength > 50) return false
+		let offset = 16
+		let compatibleBrands = []
+		while (offset < ftypLength) {
+			compatibleBrands.push(file.getString(offset, 4))
+			offset += 4
+		}
+		return compatibleBrands.includes('heic')
+	}
+
 	async parse() {
-		var metaBoxOffset = this.file.getUint32(0)
-		let meta = this.parseBoxHead(metaBoxOffset)
+		let nextBoxOffset = this.file.getUint32(0)
+		let meta = this.parseBoxHead(nextBoxOffset)
+		while (meta.kind !== 'meta') {
+			nextBoxOffset += meta.length
+			await this.file.ensureChunk(nextBoxOffset, boxHeaderLength)
+			meta = this.parseBoxHead(nextBoxOffset)
+		}
 		await this.file.ensureChunk(meta.offset, meta.length)
 		this.parseBoxFullHead(meta)
 		this.parseSubBoxes(meta)
+		//await this.findThumb(meta)
 		if (this.options.icc.enabled)  await this.findIcc(meta)
 		if (this.options.tiff.enabled) await this.findExif(meta)
 	}
@@ -63,7 +97,26 @@ export class HeicFileParser extends IsoBmffParser {
 		let chunk = this.file.subarray(offset, length)
 		this.createParser(key, chunk)
 	}
-
+/*
+	async findThumb(meta) {
+		let iref = this.findBox(meta, 'iref')
+		if (iref === undefined) return
+		this.parseBoxFullHead(iref)
+		let thmb = this.findBox(iref, 'thmb')
+		if (thmb === undefined) return
+		let thumbLocId = this.file.getUint16(thmb.offset + 8)
+		let iloc = this.findBox(meta, 'iloc')
+		if (iloc === undefined) return
+		let extent = this.findExtentInIloc(iloc, thumbLocId)
+		if (extent === undefined) return
+		let [thumbOffset, thumbLength] = extent
+		console.log('thumbOffset', thumbOffset)
+		console.log('thumbLength', thumbLength)
+		await this.file.ensureChunk(thumbOffset, thumbLength)
+		let chunk = this.file.subarray(thumbOffset, thumbLength)
+		return chunk.toUint8()
+	}
+*/
 	async findIcc(meta) {
 		let iprp = this.findBox(meta, 'iprp')
 		if (iprp === undefined) return
@@ -71,7 +124,7 @@ export class HeicFileParser extends IsoBmffParser {
 		if (ipco === undefined) return
 		let colr = this.findBox(ipco, 'colr')
 		if (colr === undefined) return
-		await this.registerSegment('icc',  colr.offset + 12, colr.length)
+		await this.registerSegment('icc', colr.offset + 12, colr.length)
 	}
 
 	async findExif(meta) {

@@ -34,12 +34,12 @@ Try it yourself - [demo page & playground](https://mutiny.cz/exifr/).
 
 <img src="https://raw.githubusercontent.com/MikeKovarik/exifr/master/logo/readme-gif.gif" width="35%" align="right">
 
-Works everywhere, parses everything and handles anything you throw at it.
+Works everywhere, parses anything you throw at it.
 
 * 🏎️ **Fastest EXIF lib**: +-1ms per file
 * 🗃️ **Any input**: buffers, url, &lt;img&gt; tag, and more
-* 📷 Files: **.jpg**, **.tif**, **.heic**
-* 🔎 Segments: **TIFF** (EXIF, GPS, etc...), **XMP**, **ICC**, **IPTC**, **JFIF**
+* 📷 Files: **.jpg**, **.tif**, **.heic**, **.png**, **.iiq**
+* 🔎 Segments: **TIFF** (EXIF, GPS, etc...), **XMP**, **ICC**, **IPTC**, JFIF, IHDR
 * 📑 **Reads only first few bytes**
 * 🔬 **Skips parsing tags you don't need**
 * ✨ **Isomorphic**: Browser & Node.js
@@ -72,6 +72,17 @@ Works everywhere, parses everything and handles anything you throw at it.
 You don't need to read the whole file to tell if there's EXIF in it. And you don't need to extract all the data when you're looking for just a few tags. Exifr just jumps through the file structure, from pointer to pointer. Instead of reading it byte by byte, from beginning to end.
 
 Exifr does what no other JS lib does. It's **efficient** and **blazing fast**!
+
+| Segments | JPEG | TIFF / IIQ | HEIC | PNG  |
+|-|-|-|-|-|
+| EXIF/TIFF, GPS | ✔ | ✔ | ✔ | ✔ |
+| XMP | ✔ | ✔ | ❌ | ✔ |
+| IPTC | ✔ | ✔ | ❌ | 🟡 *(If it's a part of IHDR)* |
+| ICC | ✔ | ✔ | ✔ | ✔ *(Node.js only, requires zlib)* |
+| Thumbnail | ✔ | ❌ | ❌ | ❌ |
+| JFIF *(JPEG header)* | ✔ | ⚫ | ⚫ | ⚫ |
+| IHDR *(PNG header)* | ⚫ | ⚫ | ⚫ | ✔ |
+
 
 ## Usage
 
@@ -142,9 +153,9 @@ Of course, you can use the `full` version in browser, or use any other build in 
 |                 | full | lite | mini | core |
 |-----------------|------|------|------|------|
 | chunked<br>file readers | BlobReader<br>UrlFetcher<br>FsReader<br>Base64Reader | BlobReader<br>UrlFetcher | BlobReader | none |
-| file parsers    | `*.jpg`<br>`*.heic`<br>`*.tif` | `*.jpg`<br>`*.heic` | `*.jpg` | none |
-| segment<br>parsers | TIFF (EXIF)<br>IPTC<br>XMP<br>ICC<br>JFIF | TIFF (EXIF)<br>XMP | TIFF (EXIF) | none |
-| dictionaries    | TIFF (+ less frequent tags)<br>IPTC<br>ICC | only TIFF keys<br>(IFD0, EXIF, GPS) | none | none |
+| file parsers    | `*.jpg`<br>`*.heic`<br>`*.tif`/`*.iiq`<br>`*.png` | `*.jpg`<br>`*.heic` | `*.jpg` | none |
+| segment<br>parsers | TIFF (EXIF)<br>IPTC<br>XMP<br>ICC<br>JFIF<br>IHDR | TIFF (EXIF)<br>XMP | TIFF (EXIF) | none |
+| dictionaries    | TIFF (+ less frequent tags)<br>IPTC<br>ICC<br>JFIF<br>IHDR | only TIFF keys<br>(IFD0, EXIF, GPS) | none | none |
 | size +-         | 60 Kb | 40 Kb | 25 Kb | 15 Kb |
 | gzipped         | 22 Kb | 12 Kb | 8 Kb  | 4 Kb  |
 | file            | `full.umd.js`<br>`full.esm.js`<br>`full.esm.mjs`<br>`full.legacy.umd.js` | `lite.umd.js`<br>`lite.esm.js`<br>`lite.esm.mjs`<br>`lite.legacy.umd.js` | `mini.umd.js`<br>`mini.esm.js`<br>`mini.esm.mjs`<br>`mini.legacy.umd.js` | [Learn more](#advanced) |
@@ -301,7 +312,7 @@ Only extracts photo's orientation. Returns object with instructions how to rotat
 * `css` `<boolean>`: can/can't be rotated with CSS and `transform: rotate()` (important for ios Safari)
 * `canvas` `<boolean>`: can/can't be rotated with canvas and `ctx.rotate()` (important for ios Safari)
 
-**Warning:** Safari on ios (but not on macos) autorotates `<img>` elements, but does not alter EXIF. The behavior has changed yet again for canvas and `ctx.drawImage()` since Safari 13.4. If you don't handle this quirk, you may end up with over-rotated image.
+**Warning:** Some modern browsers autorotate `<img>` elements, `background-image` and/or data passed to `<canvas>` without altering the EXIF. The behavior is extra quirky on iOs 13.4 Safari and newer (though not on macos). You may end up with over-rotated image if you don't handle this quirk. See [examples/orientation.html](examples/orientation.html) to learn more.
 
 ```js
 let r = await exifr.rotation(image)
@@ -330,16 +341,17 @@ Exports the thumbnail wrapped in [Object URL](https://developer.mozilla.org/en-U
 
 Aforementioned functions are wrappers that internally:
 1) instantiate `new Exifr(options)` class
-2) call `.read(file)` to read the file
-3) call `.parse()` or `.extractThumbnail()`
+2) call `.read(file)` to load the file
+3) call `.parse()` or `.extractThumbnail()` to get an output
 
-You can instantiate `Exif` yourself to parse metadata and extract thumbnail efficiently at the same time. In Node.js it's also necessary to close the file with `.file.close()` if it's read in chunked mode.
+You can instantiate `Exif` yourself to parse metadata and extract thumbnail efficiently at the same time. In Node.js it's also necessary to close the file with `.file.close()` if it's read in the chunked mode.
 
 ```js
 let exr = new Exifr(options)
-let output = await exr.read(file)
+await exr.read(file)
+let output = await exr.parse()
 let buffer = await exr.extractThumbnail()
-if (exr.file.chunked) await exr.file.close()
+await exr.file?.close?.()
 ```
 
 ### `file` argument
@@ -365,13 +377,14 @@ All other and undefined properties are inherited from defaults:
 
 ```js
 let defaultOptions = {
-  // APP Segments
-  jfif: false,
+  // Segments (JPEG APP Segment, PNG Chunks, HEIC Boxes, etc...)
   tiff: true,
   xmp: false,
   icc: false,
   iptc: false,
-  // TIFF Blocks
+  jfif: false, // (jpeg only)
+  ihdr: false, // (png only)
+  // Sub-blocks inside TIFF segment
   ifd0: true, // aka image
   ifd1: false, // aka thumbnail
   exif: true,
@@ -442,7 +455,7 @@ By default, MakerNote and UserComment tags are skipped. But that is configured [
 
 EXIF became synonymous for all image metadata, but it's actually just one of many blocks inside TIFF segment. And there are more segment than just TIFF.
 
-#### APP Segments
+#### Segments (JPEG APP Segments, HEIC Boxes, PNG Chunks)
 
 Jpeg stores various formats of data in APP-Segments. Heic and Tiff file formats use different structures or naming conventions but the idea is the same, so we refer to TIFF, XMP, IPTC, ICC and JFIF as Segments.
 
@@ -456,6 +469,8 @@ Jpeg stores various formats of data in APP-Segments. Heic and Tiff file formats 
 <br>IPTC APP13 Segment - Captions and copyrights
 * `options.icc` type `bool` default: `false`
 <br>ICC APP2 Segment - Color profile
+* `options.ihdr` type `bool` default: `true` (only for PNG)
+<br>PNG Header chunk - Basic file info
 
 #### TIFF IFD Blocks
 
@@ -968,6 +983,7 @@ For full changelog visit [`CHANGELOG.md`](CHANGELOG.md).
 
 ### Notable changes
 
+* **6.0.0** & **6.2.0** PNG support.
 * **4.3.0** Package.json's `"main"` now points to UMD bundle for better compatibility.
 * **4.1.0** Started bundling shims and polyfills with `legacy` builds. Suppporting IE10.
 * **4.0.0** Added XMP Parser and XMP Extended support.

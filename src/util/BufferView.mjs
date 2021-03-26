@@ -1,6 +1,8 @@
-import {customError} from './helpers.mjs'
-import {BigInt, hasBuffer} from '../util/platform.mjs'
+import {throwError} from './helpers.mjs'
+import {hasBuffer} from '../util/platform.mjs'
 
+
+const arrayToCharCode = arr => String.fromCharCode.apply(null, arr)
 
 const utf8decoder = typeof TextDecoder !== 'undefined' ? new TextDecoder('utf-8') : undefined
 
@@ -10,7 +12,7 @@ export function uint8ArrayToUtf8String(uint8array) {
 	else if (hasBuffer)
 		return Buffer.from(uint8array).toString('utf8')
 	else
-		return decodeURIComponent(escape(String.fromCharCode.apply(null, uint8array)))
+		return decodeURIComponent(escape(arrayToCharCode(uint8array)))
 }
 
 // NOTE: EXIF strings are ASCII encoded, but since ASCII is subset of UTF-8
@@ -21,8 +23,6 @@ export function toAsciiString(arg) {
 	else
 		return arg
 }
-
-const FULL_20_BITS = 0b11111111111111111111
 
 export class BufferView {
 
@@ -49,14 +49,14 @@ export class BufferView {
 			if (length === undefined) length = arg.byteLength - offset
 			offset += arg.byteOffset
 			if (offset + length > arg.byteOffset + arg.byteLength)
-				throw customError('Creating view outside of available memory in ArrayBuffer')
+				throwError('Creating view outside of available memory in ArrayBuffer')
 			let dataView = new DataView(arg.buffer, offset, length)
 			this._swapDataView(dataView)
 		} else if (typeof arg === 'number') {
 			let dataView = new DataView(new ArrayBuffer(arg))
 			this._swapDataView(dataView)
 		} else {
-			throw customError('Invalid input argument for BufferView: ' + arg)
+			throwError('Invalid input argument for BufferView: ' + arg)
 		}
 	}
 
@@ -85,7 +85,7 @@ export class BufferView {
 		else if (arg instanceof ArrayBuffer)
 			arg = new Uint8Array(arg)
 		if (!(arg instanceof Uint8Array))
-			throw customError(`BufferView.set(): Invalid data argument.`)
+			throwError(`BufferView.set(): Invalid data argument.`)
 		let uintView = this.toUint8()
 		uintView.set(arg, offset)
 		return new Class(this, offset, arg.byteLength)
@@ -114,13 +114,18 @@ export class BufferView {
 		return uint8ArrayToUtf8String(arr)
 	}
 
+	getLatin1String(offset = 0, length = this.byteLength) {
+		let arr = this.getUint8Array(offset, length)
+		return arrayToCharCode(arr)
+	}
+
 	// TODO: refactor
 	getUnicodeString(offset = 0, length = this.byteLength) {
 		// cannot use Uint16Array because it uses the other fucking endian order.
 		const chars = []
 		for (let i = 0; i < length && offset + i < this.byteLength; i += 2)
 			chars.push(this.getUint16(offset + i))
-		return chars.map(charCode => String.fromCharCode(charCode)).join('')
+		return arrayToCharCode(chars)
 	}
 
 	getInt8(offset)                  {return this.dataView.getInt8(offset)}
@@ -134,42 +139,26 @@ export class BufferView {
 	getFloat(offset,   le = this.le) {return this.dataView.getFloat32(offset, le)}
 	getDouble(offset,  le = this.le) {return this.dataView.getFloat64(offset, le)}
 
-	getUint64(offset) {
-		let part1 = this.getUint32(offset)
-		let part2 = this.getUint32(offset + 4)
-		if (part1 < FULL_20_BITS) {
-			// Warning: JS cannot handle 64-bit integers. The number will overflow and cause unexpected result
-			// if the number is larger than 53. We try to handle numbers up to 52 bits. 32+21 = 53 out of which
-			// one bit is needed for sign. Becase js only does 32 unsinged int (through bitwise operators).
-			return (part1 << 32) | part2
-		} else if (typeof BigInt !== undefined) {
-			// If the environment supports BigInt we'll try to use it. Though it may break user functionality
-			// (for example can't do mixed math with numbers & bigints)
-			console.warn(`Using BigInt because of type 64uint but JS can only handle 53b numbers.`)
-			return (BigInt(part1) << BigInt(32)) | BigInt(part2)
-		} else {
-			// The value (when both 32b parts combined) is larger than 53 bits so we can't just use Number type
-			// and this environment doesn't support BigInt... throw error.
-			throw customError(`Trying to read 64b value but JS can only handle 53b numbers.`)
-		}
-	}
 
-
+	// todo: investiage - can this be removed?
 	getUintBytes(offset, bytes, le) {
 		switch (bytes) {
 			case 1: return this.getUint8(offset, le)
 			case 2: return this.getUint16(offset, le)
 			case 4: return this.getUint32(offset, le)
-			case 8: return this.getUint64(offset, le)
+			// Extension only required for parsing HEIC, implemented in separate file.
+			case 8: return this.getUint64 && this.getUint64(offset, le)
 		}
 	}
 
+	// todo: investiage - can this be removed?
 	getUint(offset, size, le) {
 		switch (size) {
 			case 8:  return this.getUint8(offset, le)
 			case 16: return this.getUint16(offset, le)
 			case 32: return this.getUint32(offset, le)
-			case 64: return this.getUint64(offset, le)
+			// Extension only required for parsing HEIC, implemented in separate file.
+			case 64: return this.getUint64 && this.getUint64(offset, le)
 		}
 	}
 

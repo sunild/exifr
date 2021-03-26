@@ -1,11 +1,18 @@
 import {FileParserBase} from '../parser.mjs'
-import {BufferView} from '../util/BufferView.mjs'
 import {TAG_XMP, TAG_IPTC, TAG_ICC} from '../tags.mjs'
 import {fileParsers} from '../plugins.mjs'
-import {customError, estimateMetadataSize} from '../util/helpers.mjs'
+import {estimateMetadataSize} from '../util/helpers.mjs'
+import {TIFF_LITTLE_ENDIAN, TIFF_BIG_ENDIAN} from '../util/helpers.mjs'
 
 
 export class TiffFileParser extends FileParserBase {
+
+	static type = 'tiff'
+
+	static canHandle(file, marker) {
+		return marker === TIFF_LITTLE_ENDIAN
+			|| marker === TIFF_BIG_ENDIAN
+	}
 
 	extendOptions(options) {
 		// note: skipping is done on global level in Options class
@@ -35,12 +42,11 @@ export class TiffFileParser extends FileParserBase {
 		}
 	}
 
-	adaptTiffPropAsSegment(key) {
-		if (this.parsers.tiff[key]) {
-			let rawData = this.parsers.tiff[key]
-			let chunk = BufferView.from(rawData)
-			if (this.options[key].enabled)
-				this.createParser(key, chunk)
+	adaptTiffPropAsSegment(type) {
+		if (this.parsers.tiff[type]) {
+			// TIFF stores all other segments as tags in IFD0 object. Get the tag.
+			let raw = this.parsers.tiff[type]
+			this.injectSegment(type, raw)
 		}
 	}
 

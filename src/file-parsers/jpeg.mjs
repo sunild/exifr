@@ -2,6 +2,8 @@ import {FileParserBase, AppSegmentParserBase} from '../parser.mjs'
 import {fileParsers, segmentParsers} from '../plugins.mjs'
 
 
+const JPEG_SOI = 0xffd8
+
 const MARKER_1         = 0xff
 const MARKER_2_APP0    = 0xe0 // ff e0
 const MARKER_2_APP15   = 0xef // ff ef
@@ -28,9 +30,9 @@ function isAppMarker(marker2) {
 		&& marker2 <= MARKER_2_APP15
 }
 
-function getSegmentType(buffer, offset) {
+function getSegmentType(buffer, offset, length) {
 	for (let [type, Parser] of segmentParsers)
-		if (Parser.canHandle(buffer, offset))
+		if (Parser.canHandle(buffer, offset, length))
 			return type
 }
 
@@ -59,22 +61,21 @@ function getSegmentType(buffer, offset) {
 // - may contain additional GPS, Interop, SubExif blocks (pointed to from IFD0)
 export class JpegFileParser extends FileParserBase {
 
+	static type = 'jpeg'
+
+	static canHandle(file, marker) {
+		return marker === JPEG_SOI
+	}
+
 	appSegments = []
 	jpegSegments = []
 	unknownSegments = []
 
 	async parse() {
 		await this.findAppSegments()
-		await this.readSegments()
+		await this.readSegments(this.appSegments)
 		this.mergeMultiSegments()
-		this.createParsers()
-	}
-
-	async readSegments() {
-		//let ranges = new Ranges(this.appSegments)
-		//await Promise.all(ranges.list.map(range => this.file.ensureChunk(range.offset, range.length)))
-		let promises = this.appSegments.map(this.ensureSegmentChunk)
-		await Promise.all(promises)
+		this.createParsers(this.mergedAppSegments || this.appSegments)
 	}
 
 	setupSegmentFinderArgs(wanted) {
@@ -104,9 +105,9 @@ export class JpegFileParser extends FileParserBase {
 			})
 			if (findAll) await this.file.readWhole()
 		}
-		// _findAppSegments() returns offset where next segment starts. If we didn't store it, next time we continue
+		// findAppSegmentsInRange() returns offset where next segment starts. If we didn't store it, next time we continue
 		// we might start in middle of data segment and would uselessly read & parse through noise.
-		offset = this._findAppSegments(offset, file.byteLength, findAll, wanted, remaining)
+		offset = this.findAppSegmentsInRange(offset, file.byteLength)
 		// If user only requests TIFF it's not necessary to read any more chunks. Because EXIF in jpg is always near the start of the file.
 		if (this.options.onlyTiff) return
 		if (file.chunked) {
@@ -124,14 +125,17 @@ export class JpegFileParser extends FileParserBase {
 					eof = !await file.readNextChunk(offset)
 				else
 					eof = !await file.readNextChunk(nextChunkOffset)
-				offset = this._findAppSegments(offset, file.byteLength)
+				offset = this.findAppSegmentsInRange(offset, file.byteLength)
 				// search for APP segments was cancelled because we reached raw jpeg image data.
 				if (offset === undefined) return
 			}
 		}
 	}
 
-	_findAppSegments(offset, end) {
+	findAppSegmentsInRange(offset, end) {
+		// TLDR: Make space for MARKER and LENGTH.
+		// Don't read right till end. If the last byte is marker, then length is out of bounds and crashes.
+		end -= 2
 		let {file, findAll, wanted, remaining, options} = this
 		let marker2, length, type, Parser, seg, segOpts
 		for (; offset < end; offset++) {
@@ -141,7 +145,7 @@ export class JpegFileParser extends FileParserBase {
 			if (isAppMarker(marker2)) {
 				// WE FOUND APP-N SEGMENT
 				length = file.getUint16(offset + 2)
-				type = getSegmentType(file, offset)
+				type = getSegmentType(file, offset, length)
 				if (type && wanted.has(type)) {
 					// known and parseable segment found
 					Parser = segmentParsers.get(type)
@@ -199,28 +203,6 @@ export class JpegFileParser extends FileParserBase {
 				return typeSegments[0]
 			}
 		})
-	}
-
-	// NOTE: This method was created to be reusable and not just one off. Mainly due to parsing ifd0 before thumbnail extraction.
-	//       But also because we want to enable advanced users selectively add and execute parser on the fly.
-	async createParsers() {
-		// IDEA: dynamic loading through import(parser.type) ???
-		//       We would need to know the type of segment, but we dont since its implemented in parser itself.
-		//       I.E. Unless we first load apropriate parser, the segment is of unknown type.
-		let segments = this.mergedAppSegments || this.appSegments
-		for (let segment of segments) {
-			let {type, chunk} = segment
-			if (!this.options[type].enabled) continue
-			let parser = this.parsers[type]
-			if (parser && parser.append) {
-				// TODO multisegment: to be implemented. or deleted. some types of data may be split into multiple APP segments (FLIR, maybe ICC)
-				//parser.append(chunk)
-			} else if (!parser) {
-				let Parser = segmentParsers.get(type, this.options)
-				let parser = new Parser(chunk, this.options, this.file)
-				this.parsers[type] = parser
-			}
-		}
 	}
 
 	getSegment(type) {

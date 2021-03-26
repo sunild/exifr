@@ -91,10 +91,9 @@ function injectIgnoreComments() {
 
 function cloneCjsAndMjsToJs() {
 	return {
-		writeBundle(arg) {
-			let fileName    = 'dist/' + Object.keys(arg)[0]
-			let newFileName = fileName.replace('.cjs', '.js').replace('.mjs', '.js')
-			fs.copyFile(fileName, newFileName)
+		writeBundle(bundle) {
+			let newFileName = bundle.file.replace('.cjs', '.js').replace('.mjs', '.js')
+			fs.copyFile(bundle.file, newFileName)
 		}
 	}
 }
@@ -109,6 +108,8 @@ const babelPlugins = [
 	//'@babel/plugin-proposal-nullish-coalescing-operator',
 	//'@babel/plugin-proposal-optional-chaining',
 	'@babel/plugin-proposal-class-properties',
+	'@babel/plugin-proposal-optional-chaining',
+	'@babel/plugin-syntax-dynamic-import',
 ]
 
 const babelModern = {
@@ -141,7 +142,6 @@ const babelLegacy = {
 		'@babel/plugin-transform-shorthand-properties',
 		['@babel/plugin-transform-spread', {loose: true}],
 		'@babel/plugin-transform-template-literals',
-
 	],
 }
 
@@ -156,7 +156,8 @@ function createLegacyBundle(inputPath, outputPath) {
 		input: inputPath,
 		plugins: [
 			notify(),
-			replaceFile('FsReader.mjs'),
+			replaceFile('FsReader.mjs', 'export default {}'),
+			replaceFile('import.mjs',   'export default function() {}'),
 			babel(babelLegacy),
 			replaceBuiltinsWithIePolyfills(),
 			fixIeStaticMethodSubclassing(),
@@ -212,11 +213,11 @@ export default args => {
 		args.watch = args.w = true
 	}
 	let output = []
-	if (bundle === 'mini' || bundle === undefined) {
+	if (bundle === 'full' || bundle === undefined) {
 		delete args.input
 		output.push(
-			createModernBundle('src/bundles/mini.mjs', 'dist/mini.esm.mjs', 'dist/mini.umd.cjs'),
-			createLegacyBundle('src/bundles/mini.mjs', 'dist/mini.legacy.umd.cjs'),
+			createModernBundle('src/bundles/full.mjs', 'dist/full.esm.mjs', 'dist/full.umd.cjs'),
+			createLegacyBundle('src/bundles/full.mjs', 'dist/full.legacy.umd.cjs'),
 		)
 	}
 	if (bundle === 'lite' || bundle === undefined) {
@@ -226,13 +227,23 @@ export default args => {
 			createLegacyBundle('src/bundles/lite.mjs', 'dist/lite.legacy.umd.cjs'),
 		)
 	}
-	if (bundle === 'full' || bundle === undefined) {
+	if (bundle === 'mini' || bundle === undefined) {
 		delete args.input
 		output.push(
-			createModernBundle('src/bundles/full.mjs', 'dist/full.esm.mjs', 'dist/full.umd.cjs'),
-			createLegacyBundle('src/bundles/full.mjs', 'dist/full.legacy.umd.cjs'),
+			createModernBundle('src/bundles/mini.mjs', 'dist/mini.esm.mjs', 'dist/mini.umd.cjs'),
+			createLegacyBundle('src/bundles/mini.mjs', 'dist/mini.legacy.umd.cjs'),
 		)
 	}
+	// TO BE WORKED ON
+	/*
+	if (bundle === 'nano' || bundle === undefined) {
+		delete args.input
+		output.push(
+			createModernBundle('src/bundles/nano.mjs', 'dist/nano.esm.mjs', 'dist/nano.umd.cjs'),
+			createLegacyBundle('src/bundles/nano.mjs', 'dist/nano.legacy.umd.cjs'),
+		)
+	}
+	*/
 	return output
 }
 

@@ -2,6 +2,77 @@
 
 ## [Unreleased]
 
+## [6.2.0]
+
+### Added
+
+- **EXIF** segment (and thus GPS) extraction from **PNG files**. Only parses the modern `eXIf` chunks and not `zTXt`
+- IIQ file support
+
+### Fixed
+
+- `Invalid input argument for BufferView` bug when parsing XMP from TIFF file if the XMP IFD0 tag was of type string (2) instead of byte array (1)
+- `Closing file descriptor N on garbage collection` when reading unknown format.
+
+## [6.1.1]
+
+### Fixed
+
+- Encoding in IPTC (issue 47)
+
+## [6.1.0]
+
+### Fixed
+
+- d.ts: typo; additional type for `exifr.rotation()`
+- `exifr.rotation()` works correctly on latest macos safari.
+
+## [6.0.0]
+
+### Added
+
+- **PNG SUPPORT** (and IHDR segment parser which implements the PNG header structure)
+- IHDR dictionary
+- JFIF dictionary - the keys are now in configurable dictionary instead of hardcoded into a parser.
+
+### Fixed
+
+- Orientation bug related to ios and webview (PR 42)
+- Reading APP13 Segment not containing IPTC
+- Unwrapping value of ExifImageHeight ExifImageWidth in case it is in typed array
+
+## [5.0.6]
+
+### Fixed
+
+- Chunked reading of heic file, related to Issue 35
+
+## [5.0.5]
+
+### Changed
+
+- Nothing new. Re-release of 5.0.4 which was accidentally released with code from 5.0.3.
+
+## [5.0.4]
+
+### Fixed
+
+- Issue 35 - reading heic file if mdat box preceded meta.
+- autorotation detection in firefox 77
+
+## [5.0.3]
+
+### Fixed
+
+- Bug: Reading photo in chunked mode where segment header is split between chunks.
+- Bug: ICC Text fields (of type 'text') are no longer missing last few characters.
+- Bug: IPTC out of range error.
+
+### Changed
+
+- Initial work on reducing the library's filesize
+- Slightly improved IPTC performance.
+
 ## [5.0.2]
 
 ### Fixed
@@ -183,7 +254,15 @@ Quality-Of-Life release. Improves compatibility and ease of use with various too
 ### Added
 - initial implementation
 
-[Unreleased]: https://github.com/MikeKovarik/exifr/compare/v5.0.2...HEAD
+[Unreleased]: https://github.com/MikeKovarik/exifr/compare/v6.2.0...HEAD
+[6.2.0]: https://github.com/MikeKovarik/exifr/compare/v6.1.1...v6.2.0
+[6.1.1]: https://github.com/MikeKovarik/exifr/compare/v6.1.0...v6.1.1
+[6.1.0]: https://github.com/MikeKovarik/exifr/compare/v6.0.0...v6.1.0
+[6.0.0]: https://github.com/MikeKovarik/exifr/compare/v5.0.6...v6.0.0
+[5.0.6]: https://github.com/MikeKovarik/exifr/compare/v5.0.5...v5.0.6
+[5.0.5]: https://github.com/MikeKovarik/exifr/compare/v5.0.4...v5.0.5
+[5.0.4]: https://github.com/MikeKovarik/exifr/compare/v5.0.3...v5.0.4
+[5.0.3]: https://github.com/MikeKovarik/exifr/compare/v5.0.2...v5.0.3
 [5.0.2]: https://github.com/MikeKovarik/exifr/compare/v5.0.1...v5.0.2
 [5.0.1]: https://github.com/MikeKovarik/exifr/compare/v5.0.0...v5.0.1
 [5.0.0]: https://github.com/MikeKovarik/exifr/compare/v4.3.3...v5.0.0
